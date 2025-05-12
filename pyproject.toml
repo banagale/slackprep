@@ -1,0 +1,47 @@
+[project]
+name = "slackprep"
+version = "0.1.0"
+description = "Turn Slack conversations into useful data for LLM contexts"
+authors = [{ name = "Rob Banagale" }]
+readme = "README.md"
+
+[build-system]
+requires = ["poetry-core>=1.7.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+packages = [{ include = "slackprep", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.9.6"
+pytest = "^8.3.5"
+pre-commit = "^4.1.0"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = [
+    ".venv",
+    ".git",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    "node_modules",
+    "build",
+    "dist"
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+fixable = ["ALL"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
