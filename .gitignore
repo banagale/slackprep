@@ -32,6 +32,8 @@ __pycache__/
 debug.log
 tmp/
 
+# ---- Input and output ----
+data/
 # ---- Build & Distribution ----
 dist/
 build/
