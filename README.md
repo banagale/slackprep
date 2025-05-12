@@ -1,50 +1,83 @@
 # slackprep
 
-**slackprep** is a command-line utility and library for converting raw Slack exports into clean, structured, LLM-friendly transcripts. It is designed to support workflows that bring Slack conversations into large language models for context-aware analysis, retrieval, or enrichment.
+**slackprep** is a command-line utility and Python library that converts raw Slack export data into clean, structured,
+LLM-friendly Markdown transcripts. It supports workflows for embedding, summarization, RAG augmentation, and developer
+context tools like FileKitty.
 
 ---
 
 ## ✨ Features
 
-- Reassembles Slack DM or MPDM conversation threads across multiple days
-- Resolves user IDs into real names using `users.json`
-- Converts message threads into Markdown format with:
-  - Speaker labels and timestamps
-  - Slack-formatted links rendered as Markdown links
-  - Uploaded images annotated with vision-aware notes
-- Output is optimized for prompt injection or RAG pipelines
+- Groups Slack DM/MPDM conversation threads across multiple days
+- Resolves user IDs to real names using `users.json`
+- Groups consecutive messages by speaker with blank lines for readability
+- Detects and renders:
+    - Slack-formatted links (`<url|label>`) as Markdown
+    - Mentions (`<@UXXXXXX>`) as `@Full Name`
+    - Common emoji shortcodes (e.g. `:rolling_on_the_floor_laughing:` → 🤣)
+    - Code blocks with triple-backtick fencing
+    - Archive and image attachments using relative paths
+- Outputs Markdown suitable for prompt injection or retrieval
 
 ---
 
 ## 📦 Usage
 
+From inside a Slack export directory:
+
 ```bash
-python reassemble_conversations.py
+cd data/slackdumps/2025-05-12-dump
+poetry run slackprep
+````
+
+### CLI Options
+
+```bash
+poetry run slackprep [options]
 ```
 
-This will:
+Available flags:
 
-* Walk all DM/MPDM directories in the Slack export folder
-* Reconstruct messages in chronological order
-* Output a `reassembled_conversation.md` file in the project root
+* `--all-turns` — do not group consecutive messages by speaker
+* `--absolute-timestamps` — include full timestamps instead of just dates
+
+---
+
+## 📁 Directory Layout
+
+```
+slackprep/
+├── pyproject.toml
+├── README.md
+├── .gitignore
+├── data/
+│   └── slackdumps/
+│       └── 2025-05-12-dump/
+│           ├── users.json
+│           ├── mpdm-rob--eric--vlad/
+│           └── __uploads/
+└── src/
+    └── slackprep/
+        └── reassemble.py
+```
 
 ---
 
 ## 🧪 Development
 
-Set up with [Poetry](https://python-poetry.org/):
+Install dependencies:
 
 ```bash
 poetry install
 ```
 
-Run tests with:
+Run tests:
 
 ```bash
 poetry run pytest
 ```
 
-Lint and autoformat:
+Lint and format:
 
 ```bash
 poetry run ruff check .
@@ -55,16 +88,16 @@ poetry run ruff format .
 
 ## 🔮 Roadmap
 
-* Optional split-per-conversation output
-* Markdown-to-embedding JSON transforms
-* CLI flags for time-window filtering and topic grouping
-* Integration with FileKitty for context-aware imports
+* `--output` path support
+* Optional `.jsonl` format for embedding pipelines
+* Thread/topic summarization scaffolding
+* Integration with FileKitty for side-by-side context injection
 
 ---
 
 ## 🛡️ License
 
-MIT (or your preferred license)
+MIT
 
 ---
 
