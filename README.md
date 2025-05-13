@@ -1,106 +1,127 @@
 # slackprep
 
-**slackprep** is a command-line utility and Python library that converts raw Slack export data into clean, structured,
-LLM-friendly Markdown transcripts. It supports workflows for embedding, summarization, RAG augmentation, and developer
-context tools like FileKitty.
+**slackprep** is a CLI tool and Python library that converts Slack export data into structured Markdown or JSONL transcripts. It supports workflows for summarization, prompt engineering, embedding, and file-aware developer tools like FileKitty.
 
 ---
 
-## ✨ Features
+## Features
 
-- Groups Slack DM/MPDM conversation threads across multiple days
-- Resolves user IDs to real names using `users.json`
-- Groups consecutive messages by speaker with blank lines for readability
-- Detects and renders:
-    - Slack-formatted links (`<url|label>`) as Markdown
-    - Mentions (`<@UXXXXXX>`) as `@Full Name`
-    - Common emoji shortcodes (e.g. `:rolling_on_the_floor_laughing:` → 🤣)
-    - Code blocks with triple-backtick fencing
-    - Archive and image attachments using relative paths
-- Outputs Markdown suitable for prompt injection or retrieval
+- Groups or flattens speaker turns
+- Resolves user IDs via `users.json`
+- Converts Slack-formatted links, mentions, emoji, and code blocks
+- Renders image attachments and links to other files
+- Outputs Markdown (for prompts) or JSONL (for embedding)
+- Copies only referenced files from `__uploads/`
+- Writes per-conversation output folders under `data/output/`
+- Adds symlink to original input folder (macOS only)
 
 ---
 
-## 📦 Usage
+## Expected Input Format
 
-From inside a Slack export directory:
+slackprep operates on Slack export folders containing:
+
+- `users.json`
+- One or more subfolders (e.g. `mpdm-*`, `C08*`, `D0*`) with `.json` messages
+- An optional `__uploads/` folder containing files
+
+We recommend using [`slackdump`](https://github.com/rusq/slackdump) to generate compatible exports:
+
+```shell
+brew install slackdump # or whatever is appropriate on your system
+```
+
+---
+
+## Getting a Slack Conversation ID
+
+Right-click a Slack channel or DM > **Copy link**. Extract the ID from the URL:
+
+`https://workspace.slack.com/archives/C08CSAH829K` → `C08CSAH829K`
+
+---
+
+## Usage
+
+### Export Slack data
 
 ```bash
-cd data/slackdumps/2025-05-12-dump
-poetry run slackprep
+slackdump export -o data/input/slackdump_C08CSAH829K_$(date +%Y%m%d_%H%M%S) C08CSAH829K
 ````
 
-### CLI Options
+Or use the `slackprep fetch` wrapper:
 
 ```bash
-poetry run slackprep [options]
+poetry run slackprep fetch C08CSAH829K
 ```
 
-Available flags:
+To export and immediately convert:
 
-* `--all-turns` — do not group consecutive messages by speaker
-* `--absolute-timestamps` — include full timestamps instead of just dates
+```bash
+poetry run slackprep fetch --prep C08CSAH829K
+```
+
+### Convert to Markdown or JSONL
+
+```bash
+poetry run slackprep reassemble slackdump_C08CSAH829K_20250513_091057
+```
+
+Note: You can use partial folder name here, i.e. 091 will match the above.
 
 ---
 
-## 📁 Directory Layout
+## CLI Reference
+
+```bash
+poetry run slackprep <command> [options]
+```
+
+### fetch \<channel\_id>
+
+Fetch Slack messages using `slackdump`.
+
+Options:
+
+* `--prep` — run `reassemble` immediately after export
+
+### reassemble \[\<folder\_token>]
+
+Convert a Slack export to Markdown or JSONL.
+
+Options:
+
+* `--input-dir <path>` — override folder auto-detection
+* `--output <file>` — specify output file path
+* `--format markdown|jsonl` — chose output format (default: markdown)
+* `--all-turns` — do not group speaker turns
+* `--absolute-timestamps` — include full timestamp
+* `--use-symlink-for-attachments` — symlink uploads instead of copying
+
+---
+
+## Output Layout
 
 ```
-slackprep/
-├── pyproject.toml
-├── README.md
-├── .gitignore
-├── data/
-│   └── slackdumps/
-│       └── 2025-05-12-dump/
-│           ├── users.json
-│           ├── mpdm-rob--eric--vlad/
-│           └── __uploads/
-└── src/
-    └── slackprep/
-        └── reassemble.py
+data/output/slackdump_C08CSAH829K_20250513_091057/
+├── reassembled_grouped_2025-05-13T09-31.md
+├── __uploads/
+└── original_input → ../../input/slackdump_C08CSAH829K_20250513_091057
 ```
 
 ---
 
-## 🧪 Development
-
-Install dependencies:
+## Development
 
 ```bash
 poetry install
-```
-
-Run tests:
-
-```bash
 poetry run pytest
-```
-
-Lint and format:
-
-```bash
 poetry run ruff check .
 poetry run ruff format .
 ```
 
 ---
 
-## 🔮 Roadmap
-
-* `--output` path support
-* Optional `.jsonl` format for embedding pipelines
-* Thread/topic summarization scaffolding
-* Integration with FileKitty for side-by-side context injection
-
----
-
-## 🛡️ License
+## License
 
 MIT
-
----
-
-## 👤 Author
-
-Rob Banagale
