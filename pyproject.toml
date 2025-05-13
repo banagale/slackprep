@@ -13,7 +13,7 @@ build-backend = "poetry.core.masonry.api"
 packages = [{ include = "slackprep", from = "src" }]
 
 [tool.poetry.scripts]
-slackprep = "slackprep.reassemble:main"
+slackprep = "slackprep.cli:main"
 
 [tool.poetry.dependencies]
 python = "^3.12"
