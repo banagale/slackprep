@@ -80,18 +80,26 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
                     else:
                         text = normalize_links_and_mentions(raw, user_lookup)
 
+                    IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"}
+
+                    def is_image(filename: str) -> bool:
+                        return any(filename.lower().endswith(ext) for ext in IMAGE_EXTENSIONS)
+
                     files = []
+
                     for file in msg.get("files", []):
                         filename = file.get("name", "file")
                         file_id = file.get("id")
-                        path = f"__uploads/{file_id}/{filename}"
-                        if is_archive(filename):
-                            text += f"\n📦 Attached file: [`{filename}`]({path})"
-                            files.append({"name": filename, "type": "archive", "path": path})
-                        else:
-                            text += f"\n![{filename}]({path})"
-                            files.append({"name": filename, "type": "image", "path": path})
+                        relative_path = f"__uploads/{file_id}/{filename}"
 
+                        if is_image(filename):
+                            text += f"\n![{filename}]({relative_path})"
+                            filetype = "image"
+                        else:
+                            text += f"\n📦 Attached file: [`{filename}`]({relative_path})"
+                            filetype = "file"
+
+                        files.append({"name": filename, "type": filetype, "path": relative_path})
                     if group_turns and name == previous_user:
                         current_block.append("")
                         current_block.append(text)
