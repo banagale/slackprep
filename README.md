@@ -1,16 +1,3 @@
-Yes, the output is correct, and the long duration is expected.
-
-The `slackdump` tool is fetching over a year of messages (`2025-06-28` to `2026-07-07`) from *every* conversation your user has access to. This involves thousands of API calls to Slack, which are rate-limited, so the process can easily take several minutes or longer for large workspaces.
-
-The line `. <C01G5NP8VSL> (103/-) [2m16s]` confirms that the program is actively working on a channel and making progress, not frozen.
-
------
-
-### Updated README.md
-
-Here is the fully updated `README.md` with the requested link and improved examples.
-
-````markdown
 # slackprep
 
 Turn Slack conversations into useful data for LLM contexts.
@@ -54,7 +41,8 @@ data/input/slackdump_all_<timestamp>/         # Raw JSON from slackdump
 data/output/slackdump_all_<timestamp>/reassembled_<…>.md
 ```
 
-Feed the resulting Markdown straight into your favourite summarizer or [FileKitty](https://github.com/banagale/FileKitty).
+Feed the resulting Markdown straight into your favourite summarizer or combine with code, docs or other key context
+using [FileKitty](https://github.com/banagale/FileKitty).
 
 -----
 
@@ -100,7 +88,4 @@ slackdump export \
 
 ```bash
 slackprep reassemble --input-dir data/input/vacation_catchup_raw/
-```
-
-```
 ```
