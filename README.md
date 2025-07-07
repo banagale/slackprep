@@ -1,127 +1,106 @@
+Yes, the output is correct, and the long duration is expected.
+
+The `slackdump` tool is fetching over a year of messages (`2025-06-28` to `2026-07-07`) from *every* conversation your user has access to. This involves thousands of API calls to Slack, which are rate-limited, so the process can easily take several minutes or longer for large workspaces.
+
+The line `. <C01G5NP8VSL> (103/-) [2m16s]` confirms that the program is actively working on a channel and making progress, not frozen.
+
+-----
+
+### Updated README.md
+
+Here is the fully updated `README.md` with the requested link and improved examples.
+
+````markdown
 # slackprep
 
-**slackprep** is a CLI tool and Python library that converts Slack export data into structured Markdown or JSONL transcripts. It supports workflows for summarization, prompt engineering, embedding, and file-aware developer tools like FileKitty.
+Turn Slack conversations into useful data for LLM contexts.
 
----
+## ⚡ Quick Start — One-liner to grab & reassemble everything
 
-## Features
+This command pulls ALL accessible channels, DMs, and private groups for a date range, then immediately converts them to Markdown.
 
-- Groups or flattens speaker turns
-- Resolves user IDs via `users.json`
-- Converts Slack-formatted links, mentions, emoji, and code blocks
-- Renders image attachments and links to other files
-- Outputs Markdown (for prompts) or JSONL (for embedding)
-- Copies only referenced files from `__uploads/`
-- Writes per-conversation output folders under `data/output/`
-- Adds symlink to original input folder (macOS only)
+This tool avoids rate limiting, so it may take several minutes or longer depending on the amount of chats involved.
 
----
+### Getting a Slack Token
 
-## Expected Input Format
+You'll need a Slack OAuth token with sufficient permissions (`channels:history`, `groups:history`, `im:history`, `mpim:history`, `users:read`, etc.).
 
-slackprep operates on Slack export folders containing:
+For a quick, one-off export, you can generate a temporary token:
+1.  Go to **[https://api.slack.com/apps](https://api.slack.com/apps)** 
+2.  If you can generate a 12 hour app config api token, do that it will work. 
+3.  Otherwise:
+    a. Create a new app in your workspace.
+    b. Navigate to **OAuth & Permissions**. 
+    c. Add the required scopes under **User Token Scopes**.
+    d. Install the app to your workspace and copy the **User OAuth Token** (`xoxp-...`). 
 
-- `users.json`
-- One or more subfolders (e.g. `mpdm-*`, `C08*`, `D0*`) with `.json` messages
-- An optional `__uploads/` folder containing files
-
-We recommend using [`slackdump`](https://github.com/rusq/slackdump) to generate compatible exports:
-
-```shell
-brew install slackdump # or whatever is appropriate on your system
-```
-
----
-
-## Getting a Slack Conversation ID
-
-Right-click a Slack channel or DM > **Copy link**. Extract the ID from the URL:
-
-`https://workspace.slack.com/archives/C08CSAH829K` → `C08CSAH829K`
-
----
-
-## Usage
-
-### Export Slack data
+### Running the command
 
 ```bash
-slackdump export -o data/input/slackdump_C08CSAH829K_$(date +%Y%m%d_%H%M%S) C08CSAH829K
+# Export everything from last month, clean it up, and prep for an LLM
+slackprep fetch-all \
+  --start-date 2025-06-01 \
+  --end-date   2025-07-07 \
+  --cleanup \
+  --prep
 ````
 
-Or use the `slackprep fetch` wrapper:
+The script will securely prompt for your token if it's not set as an environment variable (`SLACK_API_TOKEN`).
+
+**Result:**
+
+```
+data/input/slackdump_all_<timestamp>/         # Raw JSON from slackdump
+data/output/slackdump_all_<timestamp>/reassembled_<…>.md
+```
+
+Feed the resulting Markdown straight into your favourite summarizer or [FileKitty](https://github.com/banagale/FileKitty).
+
+-----
+
+## 🌱 Quick Start (existing export ZIP)
+
+Already have a Slack export `.zip` file?
 
 ```bash
-poetry run slackprep fetch C08CSAH829K
+unzip slack-export.zip -d data/input/my_export
+slackprep reassemble --input-dir data/input/my_export
 ```
 
-To export and immediately convert:
+-----
+
+## 🎯 Target a single channel / DM
+
+To export just one conversation, use `fetch` with a channel or DM ID.
 
 ```bash
-poetry run slackprep fetch --prep C08CSAH829K
+# Export one conversation only, then reassemble
+slackprep fetch C08ABCXYZ --prep
 ```
 
-### Convert to Markdown or JSONL
+-----
+
+## 🛠 Advanced / Separate steps
+
+### 1\. Use slackdump yourself
+
+For fine-grained control over the export, you can run `slackdump` directly.
 
 ```bash
-poetry run slackprep reassemble slackdump_C08CSAH829K_20250513_091057
+# Note: slackdump uses the SLACK_API_TOKEN environment variable
+export SLACK_API_TOKEN="xoxp-your-token"
+
+slackdump export \
+  -time-from 2025-06-01 \
+  -time-to   2025-07-07 \
+  -o data/input/vacation_catchup_raw/
 ```
 
-Note: You can use partial folder name here, i.e. 091 will match the above.
-
----
-
-## CLI Reference
+### 2\. Reassemble later
 
 ```bash
-poetry run slackprep <command> [options]
+slackprep reassemble --input-dir data/input/vacation_catchup_raw/
 ```
 
-### fetch \<channel\_id>
-
-Fetch Slack messages using `slackdump`.
-
-Options:
-
-* `--prep` — run `reassemble` immediately after export
-
-### reassemble \[\<folder\_token>]
-
-Convert a Slack export to Markdown or JSONL.
-
-Options:
-
-* `--input-dir <path>` — override folder auto-detection
-* `--output <file>` — specify output file path
-* `--format markdown|jsonl` — chose output format (default: markdown)
-* `--all-turns` — do not group speaker turns
-* `--absolute-timestamps` — include full timestamp
-* `--use-symlink-for-attachments` — symlink uploads instead of copying
-
----
-
-## Output Layout
-
 ```
-data/output/slackdump_C08CSAH829K_20250513_091057/
-├── reassembled_grouped_2025-05-13T09-31.md
-├── __uploads/
-└── original_input → ../../input/slackdump_C08CSAH829K_20250513_091057
 ```
-
----
-
-## Development
-
-```bash
-poetry install
-poetry run pytest
-poetry run ruff check .
-poetry run ruff format .
-```
-
----
-
-## License
-
-MIT

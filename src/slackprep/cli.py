@@ -1,3 +1,4 @@
+import getpass
 import argparse
 import json
 import os
@@ -9,12 +10,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from slackprep.reassemble import (
-    load_users,
-    reassemble_messages,
-    write_markdown,
-    write_jsonl,
-)
+import requests
+
+from slackprep.reassemble import (load_users, reassemble_messages, write_jsonl, write_markdown)
+from slackprep.cleanup_slackdump import cleanup_slackdump
 
 IS_MACOS = platform.system() == "Darwin"
 
@@ -320,31 +319,170 @@ def handle_reassemble(args):
         force_fallback=False
     )
 
-def main():
-    parser = argparse.ArgumentParser(description="SlackPrep CLI Toolkit")
+
+def handle_fetch_all(args: argparse.Namespace) -> None:
+    """
+    Export all accessible Slack conversations via slackdump API
+    and (optionally) run slackprep reassemble.
+    """
+    # ── 1. Validate / acquire token ───────────────────────────────────────────
+    token = args.token.strip() if args.token else ""
+    identity = validate_slack_token(token) if token else None
+
+    while not identity:
+        if token:  # Only show error if a token was actually provided and failed
+            print("❌  Provided Slack token is invalid or expired.")
+
+        try:
+            # Use getpass to hide terminal input
+            token = getpass.getpass("🔑  Slack token, get from https://api.slack.com/apps. (begins either: xoxp-… or xoxb-…): ").strip()
+            if not token:  # User hit Ctrl+C or entered a blank line
+                sys.exit("\nAborted. No token provided.")
+        except KeyboardInterrupt:
+            sys.exit("\nAborted. No token provided.")
+
+        identity = validate_slack_token(token)
+
+    print(f"🔐  Authenticated as user: {identity['user']} (team: {identity['team']})")
+
+    # ── 2. Run slackdump API export ───────────────────────────────────────────
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = Path(f"data/input/slackdump_all_{timestamp}")
+    run_slackdump_api(
+        token=token,
+        output_dir=out_dir,
+        start_date=args.start_date,
+        end_date=args.end_date,
+    )
+    print(f"✅  Export complete → {out_dir.resolve()}")
+
+    # ── 3. Clean up if requested ──────────────────────────────────────────────
+    if args.cleanup:
+        print("🧹  Running cleanup on exported data...")
+        cleanup_slackdump(root_dir=out_dir, dry_run=False)
+
+    # ── 4. Reassemble if requested ────────────────────────────────────────────
+    if args.prep:
+        handle_reassemble(
+            argparse.Namespace(
+                folder_token=None,
+                input_dir=out_dir,
+                output=None,
+                format=args.format,
+                all_turns=args.all_turns,
+                absolute_timestamps=False,
+                use_symlink_for_attachments=False,
+            )
+        )
+
+
+def run_slackdump_api(
+    token: str,
+    output_dir: Path,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> None:
+    """
+    Invoke `slackdump export` to pull all conversations using the correct flags.
+    """
+    # Build the command with the correct flags based on `slackdump help export`
+    cmd = [
+        "slackdump",
+        "export",
+        "-o", str(output_dir),
+    ]
+    if start_date:
+        # Correct flag is "-time-from"
+        cmd += ["-time-from", start_date]
+    if end_date:
+        # Correct flag is "-time-to"
+        cmd += ["-time-to", end_date]
+
+    # Pass token via environment variable for security and correctness
+    env = os.environ.copy()
+    env["SLACK_API_TOKEN"] = token
+
+    # The --all and --output-format flags are removed as they are not valid.
+    print("📤  Running:", " ".join(cmd))
+    try:
+        # Use the `env` parameter to pass the token securely
+        subprocess.run(cmd, check=True, env=env)
+    except FileNotFoundError:
+        sys.exit(
+            "❌  slackdump binary not found on PATH. "
+            "Install via `go install github.com/rusq/slackdump@latest`."
+        )
+    except subprocess.CalledProcessError as exc:
+        sys.exit(f"❌  slackdump exited with status {exc.returncode}")
+
+
+def validate_slack_token(token: str) -> dict | None:
+    """Ping Slack's auth.test endpoint to verify token and return identity info if valid."""
+    resp = requests.post("https://slack.com/api/auth.test", headers={"Authorization": f"Bearer {token}"})
+    if resp.ok and resp.json().get("ok"):
+        return resp.json()
+    return None
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="slackprep", description="SlackPrep CLI Toolkit")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # fetch
-    fetch_parser = subparsers.add_parser("fetch", help="Fetch Slack channel using slackdump")
-    fetch_parser.add_argument("channel_id", help="Slack channel or DM ID to export (e.g. C08XXX or D08XXX)")
-    fetch_parser.add_argument("--prep", action="store_true", help="Run slackprep automatically after export")
+    # ---------- existing sub-commands (fetch, reassemble) ----------
+    fetch_parser = subparsers.add_parser("fetch", help="Fetch single channel / DM with slackdump")
+    fetch_parser.add_argument("channel_id", help="Slack channel or DM ID (e.g. C08… or D08…)")
+    fetch_parser.add_argument("--prep", action="store_true", help="Run reassemble after export")
     fetch_parser.set_defaults(func=handle_fetch)
 
-    # reassemble (main behavior)
-    re_parser = subparsers.add_parser("reassemble", help="Convert a Slack export to Markdown or JSONL")
+    # ---------- 🆕 fetch-all (updated) ----------
+    fetch_all = subparsers.add_parser(
+        "fetch-all", help="Fetch ALL conversations via Slack API (slackdump)"
+    )
+    fetch_all.add_argument(
+        "--token",
+        default=os.environ.get("SLACK_API_TOKEN"),
+        help="Slack OAuth token (or set SLACK_API_TOKEN env var)",
+    )
+    fetch_all.add_argument("--start-date", help="YYYY-MM-DD")
+    fetch_all.add_argument("--end-date", help="YYYY-MM-DD")
+    fetch_all.add_argument(
+        "--prep", action="store_true", help="Run reassemble automatically after export"
+    )
+    fetch_all.add_argument(
+        "--cleanup", action="store_true", help="Remove empty/unused data before prepping"
+    )
+    fetch_all.add_argument(
+        "--format",
+        choices=["markdown", "jsonl"],
+        default="markdown",
+        help="Output format for --prep",
+    )
+    fetch_all.add_argument(
+        "--all-turns",
+        action="store_true",
+        help="Disable turn grouping during --prep",
+    )
+    fetch_all.set_defaults(func=handle_fetch_all)
+
+    # ---------- reassemble ----------
+    re_parser = subparsers.add_parser("reassemble", help="Convert Slack export to Markdown / JSONL")
     re_parser.add_argument("folder_token", nargs="?", help="Substring of folder inside data/input/")
-    re_parser.add_argument("--input-dir", type=Path, help="Explicit path to Slack export folder.")
-    re_parser.add_argument("--output", type=Path, help="Path to output file.")
+    re_parser.add_argument("--input-dir", type=Path, help="Explicit path to export folder")
+    re_parser.add_argument("--output", type=Path, help="Output file path")
     re_parser.add_argument("--format", choices=["markdown", "jsonl"], default="markdown")
-    re_parser.add_argument("--all-turns", action="store_true", help="Disable turn grouping.")
-    re_parser.add_argument("--absolute-timestamps", action="store_true",
-                           help="Use full YYYY-MM-DD HH:MM timestamps.")
-    re_parser.add_argument("--use-symlink-for-attachments", action="store_true",
-                           help="Use symlinks instead of copying __uploads. Not recommended unless on macOS.")
+    re_parser.add_argument("--all-turns", action="store_true", help="Disable turn grouping")
+    re_parser.add_argument("--absolute-timestamps", action="store_true", help="Full timestamps")
+    re_parser.add_argument(
+        "--use-symlink-for-attachments",
+        action="store_true",
+        help="Symlink __uploads instead of copying (macOS only)",
+    )
     re_parser.set_defaults(func=handle_reassemble)
 
+    # ---------- dispatch ----------
     args = parser.parse_args()
     args.func(args)
+
 
 if __name__ == "__main__":
     main()
