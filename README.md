@@ -1,6 +1,11 @@
 # slackprep
 
-Turn Slack conversations into useful data for LLM contexts.
+Turn Slack conversations into useful data for LLM contexts: 
+  - Export a target date range or individual channel or conversation
+  - Create useful LLM context with Slack conversations:
+     - Adds proper conversational turns (i.e. timestamp, author)
+     - Creates embedded image placeholders, along with images that can be uploaded into llm context
+     - Converts slackmojis into emojis where possible
 
 ## Quick Start
 
