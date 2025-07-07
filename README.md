@@ -2,26 +2,24 @@
 
 Turn Slack conversations into useful data for LLM contexts.
 
-## ⚡ Quick Start — One-liner to grab & reassemble everything
+## Quick Start
 
-This command pulls ALL accessible channels, DMs, and private groups for a date range, then immediately converts them to Markdown.
+### ⚙️ Setup
 
-This tool avoids rate limiting, so it may take several minutes or longer depending on the amount of chats involved.
+This project uses Poetry for dependency management.
 
-### Getting a Slack Token
+```bash
+# Clone the repo
+git clone git@github.com:banagale/slackprep.git
 
-You'll need a Slack OAuth token with sufficient permissions (`channels:history`, `groups:history`, `im:history`, `mpim:history`, `users:read`, etc.).
+# Install dependencies
+poetry install
 
-For a quick, one-off export, you can generate a temporary token:
-1.  Go to **[https://api.slack.com/apps](https://api.slack.com/apps)** 
-2.  If you can generate a 12 hour app config api token, do that it will work. 
-3.  Otherwise:
-    a. Create a new app in your workspace.
-    b. Navigate to **OAuth & Permissions**. 
-    c. Add the required scopes under **User Token Scopes**.
-    d. Install the app to your workspace and copy the **User OAuth Token** (`xoxp-...`). 
+# Test command:
+poetry run slackprep --help
+```
 
-### Running the command
+### ⚡ Export a week of slack convos
 
 ```bash
 # Export everything from last month, clean it up, and prep for an LLM
@@ -30,7 +28,25 @@ slackprep fetch-all \
   --end-date   2025-07-07 \
   --cleanup \
   --prep
-````
+```
+
+This command pulls ALL accessible channels, DMs, and private groups for a date range, then immediately converts them to
+Markdown.
+
+This tool avoids rate limiting, so it may take several minutes or longer depending on the amount of chats involved.
+
+### Getting a Slack Token
+
+For a quick, one-off export, you can generate a temporary token:
+
+1. Go to **[https://api.slack.com/apps](https://api.slack.com/apps)**
+2. If you can generate a 12-hour app config api token, do that. It will work.
+3. Otherwise:
+   a. Create a new app in your workspace.
+   b. Navigate to **OAuth & Permissions**.
+   c. Add the required scopes under **User Token Scopes**: (`channels:history`, `groups:history`, `im:history`,
+   `mpim:history`, `users:read`).
+   d. Install the app to your workspace and copy the **User OAuth Token** (`xoxp-...`).
 
 The script will securely prompt for your token if it's not set as an environment variable (`SLACK_API_TOKEN`).
 
@@ -46,20 +62,11 @@ using [FileKitty](https://github.com/banagale/FileKitty).
 
 -----
 
-## 🌱 Quick Start (existing export ZIP)
-
-Already have a Slack export `.zip` file?
-
-```bash
-unzip slack-export.zip -d data/input/my_export
-slackprep reassemble --input-dir data/input/my_export
-```
-
------
-
 ## 🎯 Target a single channel / DM
 
 To export just one conversation, use `fetch` with a channel or DM ID.
+
+> Get the channel or DM ID by right-clicking the conversation and choosing **Copy > Copy Link**
 
 ```bash
 # Export one conversation only, then reassemble
@@ -70,7 +77,18 @@ slackprep fetch C08ABCXYZ --prep
 
 ## 🛠 Advanced / Separate steps
 
-### 1\. Use slackdump yourself
+## Use existing slack export ZIP
+
+Already have a Slack export `.zip` file?
+
+```bash
+unzip slack-export.zip -d data/input/my_export
+slackprep reassemble --input-dir data/input/my_export
+```
+
+-----
+
+### Use slackdump yourself
 
 For fine-grained control over the export, you can run `slackdump` directly.
 
@@ -84,7 +102,7 @@ slackdump export \
   -o data/input/vacation_catchup_raw/
 ```
 
-### 2\. Reassemble later
+### reassemble later
 
 ```bash
 slackprep reassemble --input-dir data/input/vacation_catchup_raw/
