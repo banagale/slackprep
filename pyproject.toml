@@ -17,6 +17,8 @@ slackprep = "slackprep.cli:main"
 
 [tool.poetry.dependencies]
 python = "^3.12"
+requests = "^2.32.4"
+getpass4 = "0.0.14.1"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.9.6"
