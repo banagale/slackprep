@@ -1,6 +1,6 @@
 [project]
 name = "slackprep"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn Slack conversations into useful data for LLM contexts"
 authors = [{ name = "Rob Banagale" }]
 readme = "README.md"
