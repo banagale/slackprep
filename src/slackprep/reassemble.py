@@ -95,6 +95,12 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
     previous_user = None
     current_block = []
     last_ts = None
+    
+    # Track content statistics
+    stats = {
+        "channels": 0, "dms": 0, "group_msgs": 0, 
+        "filtered_channels": 0, "filtered_bot_msgs": 0, "filtered_content_msgs": 0
+    }
 
     def flush_block(name, ts, block):
         if not block or not name or not ts:
@@ -103,9 +109,18 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
         output_md.append(header + "\n".join(block) + "\n\n---\n")
 
     for convo_dir in convo_dirs:
+        # Categorize conversation type
+        if convo_dir.name.startswith("D"):
+            stats["dms"] += 1
+        elif convo_dir.name.startswith("mpdm-"):
+            stats["group_msgs"] += 1
+        else:
+            stats["channels"] += 1
+            
         # Skip automation channels if filtering is enabled
         if filter_automation_channels and is_automation_channel(convo_dir.name):
             print(f"🤖 Skipping automation channel: {convo_dir.name}")
+            stats["filtered_channels"] += 1
             continue
             
         for json_file in sorted(convo_dir.glob("*.json")):
@@ -116,12 +131,14 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
                     
                     # Skip bot messages if filtering is enabled
                     if filter_bots and bot_users and user_id in bot_users:
+                        stats["filtered_bot_msgs"] += 1
                         continue
                         
                     raw = msg.get("text", "")
                     
                     # Skip automated content if filtering is enabled
                     if filter_automated_content and is_automated_content(raw):
+                        stats["filtered_content_msgs"] += 1
                         continue
                     name = user_lookup.get(user_id, "Unknown")
                     ts_raw = float(msg["ts"])
@@ -179,6 +196,14 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
                     })
 
     flush_block(previous_user, last_ts, current_block)
+    
+    # Print content summary
+    total_convos = stats["channels"] + stats["dms"] + stats["group_msgs"]
+    print(f"📊 Processed {total_convos} conversations: {stats['channels']} channels, {stats['dms']} DMs, {stats['group_msgs']} group messages")
+    
+    if any(stats[k] for k in ["filtered_channels", "filtered_bot_msgs", "filtered_content_msgs"]):
+        print(f"🔽 Filtered out: {stats['filtered_channels']} automation channels, {stats['filtered_bot_msgs']} bot messages, {stats['filtered_content_msgs']} automated content")
+    
     return output_md, output_jsonl
 
 
