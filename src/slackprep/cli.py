@@ -305,7 +305,7 @@ def handle_reassemble(args):
     if not convo_dirs:
         print(f"⚠️  No message folders found in {input_dir}. Are you sure it contains exported Slack messages?")
 
-    md_lines, jsonl_rows = reassemble_messages(
+    md_lines, jsonl_rows, toc_entries, stats = reassemble_messages(
         convo_dirs,
         user_lookup,
         absolute_timestamps=args.absolute_timestamps,
@@ -346,7 +346,7 @@ def handle_reassemble(args):
     if args.format == "jsonl":
         write_jsonl(jsonl_rows, output_path)
     else:
-        write_markdown(md_lines, output_path)
+        write_markdown(md_lines, output_path, toc_entries, stats)
 
     all_files = []
     if args.format == "jsonl":
