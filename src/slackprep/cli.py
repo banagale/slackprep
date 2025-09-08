@@ -181,36 +181,29 @@ def link_or_copy_uploads(input_dir: Path, output_dir: Path, copy: bool, referenc
     if copy:
         print("📦 Copying only referenced uploads to output...")
 
-        if dest.exists() or dest.is_symlink():
-            print(f"🧹 Removing existing uploads folder: {dest}")
-            try:
-                if dest.is_symlink() or dest.is_file():
-                    dest.unlink()
-                elif dest.is_dir():
-                    shutil.rmtree(dest)
-                else:
-                    print(f"❌ '{dest}' exists but is not a file, dir, or symlink. Delete manually.")
-                    sys.exit(1)
-            except Exception as e:
-                print(f"❌ Failed to remove existing '{dest}': {e}")
-                sys.exit(1)
-
-            # Ensure FS sync for macOS/NFS edge cases
-            for _ in range(5):
-                if not dest.exists():
-                    break
-                time.sleep(0.1)
-            else:
-                print(f"❌ '{dest}' still exists after deletion. Filesystem error.")
-                sys.exit(1)
-
         dest.mkdir(parents=True, exist_ok=True)
+        copied_count = 0
+        missing_count = 0
+        
         for f in referenced_files:
             rel_path = Path(f["path"])
             full_src = input_dir / rel_path
             full_dest = output_dir / rel_path
             full_dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(full_src, full_dest)
+            
+            try:
+                shutil.copy(full_src, full_dest)
+                copied_count += 1
+            except FileNotFoundError:
+                print(f"⚠️  Missing upload file: {rel_path}")
+                missing_count += 1
+            except Exception as e:
+                print(f"❌ Error copying {rel_path}: {e}")
+                missing_count += 1
+        
+        print(f"📦 Copied {copied_count} files")
+        if missing_count > 0:
+            print(f"⚠️  {missing_count} files were missing or couldn't be copied")
     else:
         if not IS_MACOS:
             print("⚠️  You're not on macOS. Symlink creation may fail.")
