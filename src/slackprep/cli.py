@@ -149,13 +149,23 @@ def resolve_input_dir(cli_input: Path | None, extra_arg: str | None) -> Path:
     sys.exit(1)
 
 
-def generate_output_filename(format: str, group_turns: bool, abs_ts: bool) -> str:
+def generate_output_filename(format: str, group_turns: bool, abs_ts: bool, 
+                            filter_bots=False, filter_automation_channels=False, filter_automated_content=False) -> str:
     mode = "allturns" if not group_turns else "grouped"
     if abs_ts:
         mode += "_abs"
+    
+    # Add filtering indicators to filename
+    if filter_bots or filter_automation_channels or filter_automated_content:
+        filter_parts = []
+        if filter_bots: filter_parts.append("nobots")
+        if filter_automation_channels: filter_parts.append("nochannelautomation") 
+        if filter_automated_content: filter_parts.append("nocontentautomation")
+        mode += "_" + "_".join(filter_parts)
+    
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M")
     ext = "jsonl" if format == "jsonl" else "md"
-    return f"reassembled_{mode}_{timestamp}.{ext}"
+    return f"workspace_conversations_{mode}_{timestamp}.{ext}"
 
 
 def link_or_copy_uploads(input_dir: Path, output_dir: Path, copy: bool, referenced_files: list[dict],
@@ -328,6 +338,9 @@ def handle_reassemble(args):
             args.format,
             group_turns=not args.all_turns,
             abs_ts=args.absolute_timestamps,
+            filter_bots=filter_bots,
+            filter_automation_channels=filter_automation_channels,
+            filter_automated_content=filter_automated_content,
         )
 
     if args.format == "jsonl":
