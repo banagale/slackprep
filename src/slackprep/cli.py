@@ -12,7 +12,7 @@ from pathlib import Path
 
 import requests
 
-from slackprep.reassemble import (load_users, reassemble_messages, write_jsonl, write_markdown)
+from slackprep.reassemble import (load_users, load_bot_users, reassemble_messages, write_jsonl, write_markdown)
 from slackprep.cleanup_slackdump import cleanup_slackdump
 
 IS_MACOS = platform.system() == "Darwin"
@@ -273,6 +273,17 @@ def handle_fetch(args):
 def handle_reassemble(args):
     input_dir = resolve_input_dir(args.input_dir, args.folder_token)
     user_lookup = load_users(input_dir / "users.json")
+    
+    # Handle filtering options
+    filter_bots = getattr(args, 'filter_bots', False) or getattr(args, 'human_only', False)
+    filter_automation_channels = getattr(args, 'filter_automation_channels', False) or getattr(args, 'human_only', False)
+    filter_automated_content = getattr(args, 'filter_automated_content', False) or getattr(args, 'human_only', False)
+    
+    bot_users = None
+    if filter_bots:
+        bot_users = load_bot_users(input_dir / "users.json")
+        print(f"🤖 Filtering out messages from {len(bot_users)} bot users")
+    
     convo_dirs = []
     for d in input_dir.iterdir():
         if not d.is_dir():
@@ -289,6 +300,10 @@ def handle_reassemble(args):
         user_lookup,
         absolute_timestamps=args.absolute_timestamps,
         group_turns=not args.all_turns,
+        bot_users=bot_users,
+        filter_bots=filter_bots,
+        filter_automation_channels=filter_automation_channels,
+        filter_automated_content=filter_automated_content,
     )
 
     output_root = Path("data/output") / input_dir.name
@@ -538,6 +553,26 @@ def main() -> None:
         "--use-symlink-for-attachments",
         action="store_true",
         help="Symlink __uploads instead of copying (macOS only)",
+    )
+    re_parser.add_argument(
+        "--filter-bots",
+        action="store_true",
+        help="Filter out messages from bot users",
+    )
+    re_parser.add_argument(
+        "--filter-automation-channels",
+        action="store_true", 
+        help="Skip channels that appear to be automation-heavy",
+    )
+    re_parser.add_argument(
+        "--filter-automated-content",
+        action="store_true",
+        help="Filter out messages that appear to be automated content (advisories, CI output, etc.)",
+    )
+    re_parser.add_argument(
+        "--human-only",
+        action="store_true",
+        help="Enable all filtering: bots, automation channels, and automated content",
     )
     re_parser.set_defaults(func=handle_reassemble)
 
