@@ -18,6 +18,37 @@ from slackprep.cleanup_slackdump import cleanup_slackdump
 IS_MACOS = platform.system() == "Darwin"
 
 
+def check_slackdump_workspace() -> bool:
+    """Check if slackdump has any configured workspaces."""
+    try:
+        result = subprocess.run(
+            ["slackdump", "workspace", "list"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        # If exit code is 9, it means no authenticated workspaces
+        if result.returncode == 9:
+            return False
+        # If exit code is 0, workspaces exist
+        return result.returncode == 0
+    except FileNotFoundError:
+        # slackdump not installed
+        return False
+
+
+def suggest_slackdump_setup():
+    """Provide helpful guidance for setting up slackdump workspace."""
+    print("❌ No slackdump workspace configured.")
+    print("\n📋 To set up slackdump authentication:")
+    print("   1. Run: slackdump wiz")
+    print("   2. Choose 'Workspace' → 'New'") 
+    print("   3. Select 'Login In Browser' and enter your workspace name")
+    print("   4. Complete the browser authentication")
+    print("\n   Alternatively, you can use: slackdump workspace new <workspace_name>")
+    print("\n💡 After setup, retry your slackprep command.")
+
+
 def is_valid_slackdump(path: Path) -> bool:
     if not (path / "users.json").exists():
         return False
@@ -204,6 +235,11 @@ def handle_fetch(args):
         print(f"❌ Invalid Slack channel or conversation ID: '{channel_id}'")
         sys.exit(1)
 
+    # Check if slackdump workspace is configured
+    if not check_slackdump_workspace():
+        suggest_slackdump_setup()
+        sys.exit(1)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = Path(f"data/input/slackdump_{channel_id}_{timestamp}")
 
@@ -217,7 +253,11 @@ def handle_fetch(args):
         print("❌ slackdump not found. Install it first (e.g., `go install github.com/rusq/slackdump@latest`).")
         sys.exit(1)
     except subprocess.CalledProcessError as e:
-        print(f"❌ slackdump failed with exit code {e.returncode}.")
+        if e.returncode == 4:
+            print("❌ Authentication error with slackdump.")
+            suggest_slackdump_setup()
+        else:
+            print(f"❌ slackdump failed with exit code {e.returncode}.")
         sys.exit(1)
 
     print(f"✅ Export complete. Output written to: {output_dir.resolve()}")
@@ -385,6 +425,11 @@ def run_slackdump_api(
     """
     Invoke `slackdump export` to pull all conversations using the correct flags.
     """
+    # Check if slackdump workspace is configured
+    if not check_slackdump_workspace():
+        suggest_slackdump_setup()
+        sys.exit(1)
+    
     # Build the command with the correct flags based on `slackdump help export`
     cmd = [
         "slackdump",
@@ -413,7 +458,12 @@ def run_slackdump_api(
             "Install via `go install github.com/rusq/slackdump@latest`."
         )
     except subprocess.CalledProcessError as exc:
-        sys.exit(f"❌  slackdump exited with status {exc.returncode}")
+        if exc.returncode == 4:
+            print("❌  Authentication error with slackdump.")
+            suggest_slackdump_setup()
+        else:
+            print(f"❌  slackdump exited with status {exc.returncode}")
+        sys.exit(1)
 
 
 def validate_slack_token(token: str) -> dict | None:
