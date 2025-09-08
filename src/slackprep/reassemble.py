@@ -96,11 +96,12 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
     current_block = []
     last_ts = None
     
-    # Track content statistics
+    # Track content statistics and ToC data
     stats = {
         "channels": 0, "dms": 0, "group_msgs": 0, 
         "filtered_channels": 0, "filtered_bot_msgs": 0, "filtered_content_msgs": 0
     }
+    toc_entries = []  # For table of contents
 
     def flush_block(name, ts, block):
         if not block or not name or not ts:
@@ -110,18 +111,39 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
 
     for convo_dir in convo_dirs:
         # Categorize conversation type
+        convo_type = ""
         if convo_dir.name.startswith("D"):
             stats["dms"] += 1
+            convo_type = "DM"
         elif convo_dir.name.startswith("mpdm-"):
             stats["group_msgs"] += 1
+            convo_type = "Group"
         else:
             stats["channels"] += 1
+            convo_type = "Channel"
             
         # Skip automation channels if filtering is enabled
         if filter_automation_channels and is_automation_channel(convo_dir.name):
             print(f"🤖 Skipping automation channel: {convo_dir.name}")
             stats["filtered_channels"] += 1
             continue
+            
+        # Add conversation header
+        convo_display_name = convo_dir.name
+        if convo_dir.name.startswith("mpdm-"):
+            # Clean up group message names
+            convo_display_name = convo_dir.name.replace("mpdm-", "Group: ").replace("--", ", ").replace("-1", "")
+        
+        section_header = f"\n\n# {convo_type}: {convo_display_name}\n\n"
+        section_start_index = len(output_md)
+        output_md.append(section_header)
+        
+        # Track for ToC
+        toc_entries.append({
+            "name": convo_display_name,
+            "type": convo_type,
+            "index": section_start_index + 1  # +1 for eventual ToC insertion
+        })
             
         for json_file in sorted(convo_dir.glob("*.json")):
             with open(json_file) as f:
@@ -204,13 +226,54 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
     if any(stats[k] for k in ["filtered_channels", "filtered_bot_msgs", "filtered_content_msgs"]):
         print(f"🔽 Filtered out: {stats['filtered_channels']} automation channels, {stats['filtered_bot_msgs']} bot messages, {stats['filtered_content_msgs']} automated content")
     
-    return output_md, output_jsonl
+    return output_md, output_jsonl, toc_entries, stats
 
 
-def write_markdown(lines: list[str], output_path: Path):
+def write_markdown(lines: list[str], output_path: Path, toc_entries=None, stats=None):
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    
     with open(output_path, "w", encoding="utf-8") as f:
+        # Write header and metadata
+        f.write("# Slack Workspace Conversations Export\n\n")
+        
+        if stats:
+            f.write(f"**Export Summary**: {stats['channels']} channels, {stats['dms']} DMs, {stats['group_msgs']} group messages\n")
+            if any(stats[k] for k in ["filtered_channels", "filtered_bot_msgs", "filtered_content_msgs"]):
+                f.write(f"**Filtered**: {stats['filtered_channels']} automation channels, {stats['filtered_bot_msgs']} bot messages, {stats['filtered_content_msgs']} automated content\n")
+            f.write(f"**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
+        
+        # Write table of contents
+        if toc_entries:
+            f.write("## Table of Contents\n\n")
+            
+            # Group by type
+            channels = [e for e in toc_entries if e["type"] == "Channel"]
+            dms = [e for e in toc_entries if e["type"] == "DM"] 
+            groups = [e for e in toc_entries if e["type"] == "Group"]
+            
+            if channels:
+                f.write("### Channels\n")
+                for entry in channels:
+                    f.write(f"- [{entry['name']}](#{entry['name'].lower().replace(' ', '-').replace(':', '')})\n")
+                f.write("\n")
+                
+            if dms:
+                f.write("### Direct Messages\n")
+                for entry in dms:
+                    f.write(f"- [{entry['name']}](#{entry['name'].lower().replace(' ', '-').replace(':', '')})\n")
+                f.write("\n")
+                
+            if groups:
+                f.write("### Group Messages\n")
+                for entry in groups:
+                    f.write(f"- [{entry['name']}](#{entry['name'].lower().replace(' ', '-').replace(':', '')})\n")
+                f.write("\n")
+            
+            f.write("---\n\n")
+        
+        # Write the conversations
         f.write("\n".join(lines))
+        
     print(f"✅ Markdown transcript written to: {output_path.resolve()}")
 
 
