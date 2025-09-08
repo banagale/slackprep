@@ -15,6 +15,51 @@ def load_users(users_path: Path) -> dict:
         }
 
 
+def load_bot_users(users_path: Path) -> set:
+    """Load set of bot user IDs from users.json"""
+    with open(users_path) as f:
+        users = json.load(f)
+        return {
+            u["id"] for u in users 
+            if u.get("is_bot", False)
+        }
+
+
+def is_automation_channel(channel_name: str) -> bool:
+    """Detect channels that are likely automation-heavy"""
+    automation_patterns = [
+        "notification", "alert", "test", "ci", "deploy", "build", 
+        "monitor", "status", "bot", "automation", "nightly"
+    ]
+    name_lower = channel_name.lower()
+    return any(pattern in name_lower for pattern in automation_patterns)
+
+
+def is_automated_content(text: str) -> bool:
+    """Detect messages that appear to be automated content"""
+    if not text:
+        return False
+        
+    automation_indicators = [
+        # Common automation patterns
+        "new advisories found",
+        "deployment completed",
+        "build succeeded", "build failed",
+        "pipeline", "job completed", 
+        "alert:", "warning:",
+        "automated report",
+        # RSS/feed patterns  
+        "[emoji:rocket]",
+        "🚀 *New", "*New advisories*",
+        # CI/CD patterns
+        "✅ deployed", "❌ failed",
+        "merge request", "pull request merged",
+    ]
+    
+    text_lower = text.lower()
+    return any(indicator.lower() in text_lower for indicator in automation_indicators)
+
+
 def is_archive(filename: str) -> bool:
     return any(filename.endswith(ext) for ext in ARCHIVE_EXTENSIONS)
 
@@ -43,7 +88,8 @@ def normalize_links_and_mentions(text: str, user_lookup: dict) -> str:
     return re.sub(r":([a-zA-Z0-9_+]+):", emoji_sub, text).strip()
 
 
-def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, group_turns=True):
+def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, group_turns=True, 
+                       bot_users=None, filter_bots=False, filter_automation_channels=False, filter_automated_content=False):
     output_md = []
     output_jsonl = []
     previous_user = None
@@ -57,17 +103,31 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
         output_md.append(header + "\n".join(block) + "\n\n---\n")
 
     for convo_dir in convo_dirs:
+        # Skip automation channels if filtering is enabled
+        if filter_automation_channels and is_automation_channel(convo_dir.name):
+            print(f"🤖 Skipping automation channel: {convo_dir.name}")
+            continue
+            
         for json_file in sorted(convo_dir.glob("*.json")):
             with open(json_file) as f:
                 messages = json.load(f)
                 for msg in messages:
                     user_id = msg.get("user", "")
+                    
+                    # Skip bot messages if filtering is enabled
+                    if filter_bots and bot_users and user_id in bot_users:
+                        continue
+                        
+                    raw = msg.get("text", "")
+                    
+                    # Skip automated content if filtering is enabled
+                    if filter_automated_content and is_automated_content(raw):
+                        continue
                     name = user_lookup.get(user_id, "Unknown")
                     ts_raw = float(msg["ts"])
                     ts_fmt = "%Y-%m-%d %H:%M" if absolute_timestamps else "%Y-%m-%d"
                     ts = datetime.fromtimestamp(ts_raw).strftime(ts_fmt)
 
-                    raw = msg.get("text", "")
                     if "```" in raw:
                         parts = raw.split("```")
                         new = []
