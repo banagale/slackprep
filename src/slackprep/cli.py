@@ -362,39 +362,57 @@ def handle_reassemble(args):
 
 def handle_fetch_all(args: argparse.Namespace) -> None:
     """
-    Export all accessible Slack conversations via slackdump API
+    Export all accessible Slack conversations via slackdump workspace or token
     and (optionally) run slackprep reassemble.
     """
-    # ── 1. Validate / acquire token ───────────────────────────────────────────
-    token = args.token.strip() if args.token else ""
-    identity = validate_slack_token(token) if token else None
-
-    while not identity:
-        if token:  # Only show error if a token was actually provided and failed
-            print("❌  Provided Slack token is invalid or expired.")
-
-        try:
-            # Use getpass to hide terminal input
-            token = getpass.getpass("🔑  Slack token, get from https://api.slack.com/apps. (begins either: xoxp-… or xoxb-…): ").strip()
-            if not token:  # User hit Ctrl+C or entered a blank line
-                sys.exit("\nAborted. No token provided.")
-        except KeyboardInterrupt:
-            sys.exit("\nAborted. No token provided.")
-
-        identity = validate_slack_token(token)
-
-    print(f"🔐  Authenticated as user: {identity['user']} (team: {identity['team']})")
-
-    # ── 2. Run slackdump API export ───────────────────────────────────────────
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = Path(f"data/input/slackdump_all_{timestamp}")
-    run_slackdump_api(
-        token=token,
-        output_dir=out_dir,
-        start_date=args.start_date,
-        end_date=args.end_date,
-    )
-    print(f"✅  Export complete → {out_dir.resolve()}")
+
+    # ── 1. Try slackdump workspace first (preferred method) ───────────────────
+    if check_slackdump_workspace():
+        print("🔧  Using configured slackdump workspace")
+        
+        # Build slackdump command  
+        cmd = ["slackdump", "export", "-o", str(out_dir)]
+        if args.start_date:
+            cmd += ["-time-from", args.start_date]
+        if args.end_date:
+            cmd += ["-time-to", args.end_date]
+
+        print(f"📤  Running slackdump export → {out_dir}")
+        
+        try:
+            subprocess.run(cmd, check=True)
+            print(f"✅  Export complete → {out_dir.resolve()}")
+        except FileNotFoundError:
+            print("❌  slackdump binary not found on PATH.")
+            print("    Install via `go install github.com/rusq/slackdump@latest`.")
+            sys.exit(1)
+        except subprocess.CalledProcessError as exc:
+            if exc.returncode == 4:
+                print("❌  Authentication error with slackdump.")
+                suggest_slackdump_setup()
+            else:
+                print(f"❌  slackdump exited with status {exc.returncode}")
+            sys.exit(1)
+
+    # ── 2. Fallback to token method if no workspace ──────────────────────────
+    else:
+        token = args.token.strip() if args.token else ""
+        if not token:
+            print("❌  No slackdump workspace configured and no token provided.")
+            suggest_slackdump_setup() 
+            print("\n💡  Alternatively, provide a token with --token")
+            sys.exit(1)
+
+        print("🔧  Using token authentication (no workspace configured)")
+        run_slackdump_api(
+            token=token,
+            output_dir=out_dir,
+            start_date=args.start_date,
+            end_date=args.end_date,
+        )
+        print(f"✅  Export complete → {out_dir.resolve()}")
 
     # ── 3. Clean up if requested ──────────────────────────────────────────────
     if args.cleanup:
@@ -403,6 +421,7 @@ def handle_fetch_all(args: argparse.Namespace) -> None:
 
     # ── 4. Reassemble if requested ────────────────────────────────────────────
     if args.prep:
+        print("⚙️  Running reassemble...")
         handle_reassemble(
             argparse.Namespace(
                 folder_token=None,
@@ -484,14 +503,14 @@ def main() -> None:
     fetch_parser.add_argument("--prep", action="store_true", help="Run reassemble after export")
     fetch_parser.set_defaults(func=handle_fetch)
 
-    # ---------- 🆕 fetch-all (updated) ----------
+    # ---------- fetch-all (uses slackdump workspace or token) ----------
     fetch_all = subparsers.add_parser(
-        "fetch-all", help="Fetch ALL conversations via Slack API (slackdump)"
+        "fetch-all", help="Fetch ALL conversations using slackdump workspace or token"
     )
     fetch_all.add_argument(
         "--token",
         default=os.environ.get("SLACK_API_TOKEN"),
-        help="Slack OAuth token (or set SLACK_API_TOKEN env var)",
+        help="Slack OAuth token (fallback if no workspace configured)",
     )
     fetch_all.add_argument("--start-date", help="YYYY-MM-DD")
     fetch_all.add_argument("--end-date", help="YYYY-MM-DD")
