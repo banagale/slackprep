@@ -34,6 +34,10 @@ poetry run slackprep --help
 poetry run slackprep fetch-all --start-date 2025-06-01 --end-date 2025-07-07 --cleanup --prep
 poetry run slackprep fetch C08ABCXYZ --prep
 poetry run slackprep reassemble --input-dir data/input/some_export
+
+# New filtering options for clean conversation data
+poetry run slackprep reassemble --input-dir data/input/some_export --human-only
+poetry run slackprep fetch-all --start-date 2025-01-01 --end-date 2025-09-08 --prep --human-only
 ```
 
 ## Architecture
@@ -53,6 +57,9 @@ The codebase consists of three main modules:
 - Supports both Markdown and JSONL output formats
 - Groups consecutive messages from the same user (turn grouping)
 - Processes file attachments and creates proper markdown image/file references
+- **NEW**: Bot and automation filtering for clean human-only conversation exports
+- **NEW**: Table of contents generation and section headers for large exports
+- **NEW**: Content statistics and filtering reports
 
 ### Cleanup Module (`cleanup_slackdump.py`)
 - Removes unused files and directories from Slack exports

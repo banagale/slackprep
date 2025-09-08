@@ -40,6 +40,20 @@ Markdown.
 
 This tool avoids rate limiting, so it may take several minutes or longer depending on the amount of chats involved.
 
+### ⚡ Human-only conversations (filter out bots and automation)
+
+```bash
+# Export human conversations only, removing bot spam and CI noise
+slackprep fetch-all \
+  --start-date 2025-06-01 \
+  --end-date   2025-07-07 \
+  --cleanup \
+  --prep \
+  --human-only
+```
+
+This removes automated content like CI/CD notifications, bot messages, and advisory feeds - perfect for performance reviews or meaningful conversation analysis.
+
 ### Getting a Slack Token
 
 For a quick, one-off export, you can generate a temporary token:
@@ -112,3 +126,25 @@ slackdump export \
 ```bash
 slackprep reassemble --input-dir data/input/vacation_catchup_raw/
 ```
+
+-----
+
+## 🎯 Filtering Options
+
+SlackPrep can filter out automation noise to focus on genuine human conversations:
+
+```bash
+# Filter out bot messages only
+slackprep reassemble --input-dir data/input/my_export --filter-bots
+
+# Filter out automation channels (CI/CD, alerts, notifications)  
+slackprep reassemble --input-dir data/input/my_export --filter-automation-channels
+
+# Filter out automated content patterns (advisories, build logs, etc.)
+slackprep reassemble --input-dir data/input/my_export --filter-automated-content
+
+# Apply all filters for pure human conversations
+slackprep reassemble --input-dir data/input/my_export --human-only
+```
+
+**Results**: Human-only filtering can reduce output size by 90%+ by removing CI/CD noise and focusing on meaningful conversations.
