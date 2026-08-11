@@ -1,7 +1,7 @@
-import os
 import json
 from pathlib import Path
 from shutil import rmtree
+
 
 def cleanup_slackdump(root_dir: Path, dry_run: bool = True):
     print(f"{'Dry-running' if dry_run else 'Running'} cleanup in: {root_dir.resolve()}")
@@ -46,6 +46,7 @@ def cleanup_slackdump(root_dir: Path, dry_run: bool = True):
                 d.rmdir()
 
     print("✅ Cleanup complete." if not dry_run else "✅ Dry-run complete. Use --apply to delete.")
+
 
 if __name__ == "__main__":
     import argparse

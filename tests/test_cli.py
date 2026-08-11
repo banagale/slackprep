@@ -74,10 +74,28 @@ def test_handle_fetch_invokes_slackdump_for_only_requested_channel(
     monkeypatch.setattr(cli, "check_slackdump_workspace", lambda: True)
     monkeypatch.setattr(cli.subprocess, "run", run)
 
-    cli.handle_fetch(argparse.Namespace(channel_id="C01234567", prep=False))
+    cli.handle_fetch(
+        argparse.Namespace(
+            channel_id="C01234567",
+            time_from="2026-07-13T15:09:00",
+            time_to="2026-07-13T17:54:00",
+            files=False,
+            api_config=Path("throttled.toml"),
+            prep=False,
+        )
+    )
 
     command = run.call_args.args[0]
     assert command[:2] == ["slackdump", "export"]
+    assert command[4:10] == [
+        "-time-from",
+        "2026-07-13T15:09:00",
+        "-time-to",
+        "2026-07-13T17:54:00",
+        "-files=false",
+        "-channel-users",
+    ]
+    assert command[-3:-1] == ["-api-config", "throttled.toml"]
     assert command[-1] == "C01234567"
     assert run.call_args.kwargs == {"check": True}
 
@@ -87,12 +105,41 @@ def test_handle_fetch_rejects_invalid_conversation_id() -> None:
         cli.handle_fetch(argparse.Namespace(channel_id="invalid", prep=False))
 
 
-def test_validate_slack_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    response = Mock(ok=True)
-    response.json.return_value = {"ok": True, "user_id": "U_TEST"}
-    post = Mock(return_value=response)
-    monkeypatch.setattr(cli.requests, "post", post)
+def test_handle_fetch_all_uses_workspace_and_conservative_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    run = Mock(return_value=subprocess.CompletedProcess([], 0))
+    monkeypatch.setattr(cli, "check_slackdump_workspace", lambda: True)
+    monkeypatch.setattr(cli.subprocess, "run", run)
 
-    assert cli.validate_slack_token("secret") == {"ok": True, "user_id": "U_TEST"}
-    assert post.call_args.args == ("https://slack.com/api/auth.test",)
-    assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer secret"}
+    cli.handle_fetch_all(
+        argparse.Namespace(
+            time_from="2026-07-13T15:09:00",
+            time_to="2026-07-13T17:54:00",
+            files=False,
+            api_config=None,
+            cleanup=False,
+            prep=False,
+            format="markdown",
+            all_turns=False,
+            human_only=False,
+        )
+    )
+
+    command = run.call_args.args[0]
+    assert command[:3] == ["slackdump", "export", "-o"]
+    assert command[3].startswith("data/input/slackdump_all_")
+    assert command[-2:] == ["-files=false", "-channel-users"]
+    assert run.call_args.kwargs == {"check": True}
+
+
+def test_build_slackdump_export_command_rejects_reversed_time_range() -> None:
+    with pytest.raises(ValueError, match="earlier"):
+        cli.build_slackdump_export_command(
+            Path("output"),
+            "2026-07-13T17:54:00",
+            "2026-07-13T15:09:00",
+        )
+
+
+def test_parse_utc_timestamp_rejects_date_without_time() -> None:
+    with pytest.raises(argparse.ArgumentTypeError, match="YYYY-MM-DDTHH:MM:SS"):
+        cli.parse_utc_timestamp("2026-07-13")

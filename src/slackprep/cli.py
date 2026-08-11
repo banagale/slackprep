@@ -1,4 +1,3 @@
-import getpass
 import argparse
 import json
 import os
@@ -6,16 +5,14 @@ import platform
 import shutil
 import subprocess
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
-import requests
-
-from slackprep.reassemble import (load_users, load_bot_users, reassemble_messages, write_jsonl, write_markdown)
 from slackprep.cleanup_slackdump import cleanup_slackdump
+from slackprep.reassemble import load_bot_users, load_users, reassemble_messages, write_jsonl, write_markdown
 
 IS_MACOS = platform.system() == "Darwin"
+UTC_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 
 def check_slackdump_workspace() -> bool:
@@ -25,14 +22,15 @@ def check_slackdump_workspace() -> bool:
             ["slackdump", "workspace", "list"],
             capture_output=True,
             text=True,
-            check=False
+            check=False,
+            timeout=10,
         )
         # If exit code is 9, it means no authenticated workspaces
         if result.returncode == 9:
             return False
         # If exit code is 0, workspaces exist
         return result.returncode == 0
-    except FileNotFoundError:
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         # slackdump not installed
         return False
 
@@ -42,11 +40,72 @@ def suggest_slackdump_setup():
     print("❌ No slackdump workspace configured.")
     print("\n📋 To set up slackdump authentication:")
     print("   1. Run: slackdump wiz")
-    print("   2. Choose 'Workspace' → 'New'") 
+    print("   2. Choose 'Workspace' → 'New'")
     print("   3. Select 'Login In Browser' and enter your workspace name")
     print("   4. Complete the browser authentication")
     print("\n   Alternatively, you can use: slackdump workspace new <workspace_name>")
     print("\n💡 After setup, retry your slackprep command.")
+
+
+def parse_utc_timestamp(value: str) -> str:
+    """Validate a Slackdump UTC timestamp while preserving its CLI representation."""
+    try:
+        datetime.strptime(value, UTC_TIMESTAMP_FORMAT)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"expected UTC timestamp in YYYY-MM-DDTHH:MM:SS format, got {value!r}"
+        ) from exc
+    return value
+
+
+def build_slackdump_export_command(
+    output_dir: Path,
+    time_from: str,
+    time_to: str,
+    *,
+    channel_id: str | None = None,
+    files: bool = False,
+    api_config: Path | None = None,
+) -> list[str]:
+    """Build a bounded Slackdump 4 export command with conservative defaults."""
+    start = datetime.strptime(time_from, UTC_TIMESTAMP_FORMAT)
+    end = datetime.strptime(time_to, UTC_TIMESTAMP_FORMAT)
+    if start >= end:
+        raise ValueError("--time-from must be earlier than --time-to")
+
+    command = [
+        "slackdump",
+        "export",
+        "-o",
+        str(output_dir),
+        "-time-from",
+        time_from,
+        "-time-to",
+        time_to,
+        f"-files={'true' if files else 'false'}",
+        "-channel-users",
+    ]
+    if api_config:
+        command.extend(["-api-config", str(api_config)])
+    if channel_id:
+        command.append(channel_id)
+    return command
+
+
+def run_slackdump_export(command: list[str]) -> None:
+    """Run Slackdump without exposing workspace credentials."""
+    try:
+        subprocess.run(command, check=True)
+    except FileNotFoundError:
+        print("❌ slackdump not found. On macOS, install it with `brew install slackdump`.")
+        sys.exit(1)
+    except subprocess.CalledProcessError as exc:
+        if exc.returncode == 4:
+            print("❌ Authentication error with slackdump.")
+            suggest_slackdump_setup()
+        else:
+            print(f"❌ slackdump failed with exit code {exc.returncode}.")
+        sys.exit(1)
 
 
 def is_valid_slackdump(path: Path) -> bool:
@@ -138,38 +197,43 @@ def resolve_input_dir(cli_input: Path | None, extra_arg: str | None) -> Path:
             sys.exit(1)
 
     print("❌ No valid Slack export folders found in 'data/input'.")
-    print(
-        "\nEach folder must contain a 'users.json' file and at least one 'mpdm-*' directory."
-    )
-    print(
-        "To create input data, use the `slackdump` tool:\n\n"
-        "    poetry run slackdump export --token xoxp-your-token --output data/input\n"
-    )
+    print("\nEach folder must contain a 'users.json' file and at least one conversation directory.")
+    print("To create input data, configure a Slackdump workspace with `slackdump wiz`, then run a bounded export.\n")
     print("For setup help, see the README section: '📝 Preparing Input Data'")
     sys.exit(1)
 
 
-def generate_output_filename(format: str, group_turns: bool, abs_ts: bool, 
-                            filter_bots=False, filter_automation_channels=False, filter_automated_content=False) -> str:
+def generate_output_filename(
+    format: str,
+    group_turns: bool,
+    abs_ts: bool,
+    filter_bots: bool = False,
+    filter_automation_channels: bool = False,
+    filter_automated_content: bool = False,
+) -> str:
     mode = "allturns" if not group_turns else "grouped"
     if abs_ts:
         mode += "_abs"
-    
+
     # Add filtering indicators to filename
     if filter_bots or filter_automation_channels or filter_automated_content:
         filter_parts = []
-        if filter_bots: filter_parts.append("nobots")
-        if filter_automation_channels: filter_parts.append("nochannelautomation") 
-        if filter_automated_content: filter_parts.append("nocontentautomation")
+        if filter_bots:
+            filter_parts.append("nobots")
+        if filter_automation_channels:
+            filter_parts.append("nochannelautomation")
+        if filter_automated_content:
+            filter_parts.append("nocontentautomation")
         mode += "_" + "_".join(filter_parts)
-    
+
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M")
     ext = "jsonl" if format == "jsonl" else "md"
     return f"workspace_conversations_{mode}_{timestamp}.{ext}"
 
 
-def link_or_copy_uploads(input_dir: Path, output_dir: Path, copy: bool, referenced_files: list[dict],
-                         force_fallback: bool):
+def link_or_copy_uploads(
+    input_dir: Path, output_dir: Path, copy: bool, referenced_files: list[dict], force_fallback: bool
+):
     src = input_dir / "__uploads"
     dest = output_dir / "__uploads"
 
@@ -194,13 +258,13 @@ def link_or_copy_uploads(input_dir: Path, output_dir: Path, copy: bool, referenc
         dest.mkdir(parents=True, exist_ok=True)
         copied_count = 0
         missing_count = 0
-        
+
         for f in referenced_files:
             rel_path = Path(f["path"])
             full_src = input_dir / rel_path
             full_dest = output_dir / rel_path
             full_dest.parent.mkdir(parents=True, exist_ok=True)
-            
+
             try:
                 shutil.copy(full_src, full_dest)
                 copied_count += 1
@@ -210,7 +274,7 @@ def link_or_copy_uploads(input_dir: Path, output_dir: Path, copy: bool, referenc
             except Exception as e:
                 print(f"❌ Error copying {rel_path}: {e}")
                 missing_count += 1
-        
+
         print(f"📦 Copied {copied_count} files")
         if missing_count > 0:
             print(f"⚠️  {missing_count} files were missing or couldn't be copied")
@@ -225,8 +289,9 @@ def link_or_copy_uploads(input_dir: Path, output_dir: Path, copy: bool, referenc
             print(f"❌ Failed to create symlink: {e}")
             if force_fallback:
                 print("⚠️ Falling back to --copy-uploads mode...")
-                link_or_copy_uploads(input_dir, output_dir, copy=True, referenced_files=referenced_files,
-                                     force_fallback=False)
+                link_or_copy_uploads(
+                    input_dir, output_dir, copy=True, referenced_files=referenced_files, force_fallback=False
+                )
             else:
                 print("👉 Re-run with `--copy-uploads` or `--force-fallback` to recover.")
                 sys.exit(1)
@@ -238,7 +303,6 @@ def handle_fetch(args):
         print(f"❌ Invalid Slack channel or conversation ID: '{channel_id}'")
         sys.exit(1)
 
-    # Check if slackdump workspace is configured
     if not check_slackdump_workspace():
         suggest_slackdump_setup()
         sys.exit(1)
@@ -246,54 +310,64 @@ def handle_fetch(args):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = Path(f"data/input/slackdump_{channel_id}_{timestamp}")
 
-    print(f"📤 Running slackdump export for {channel_id} → {output_dir}")
     try:
-        subprocess.run(
-            ["slackdump", "export", "-o", str(output_dir), channel_id],
-            check=True
+        command = build_slackdump_export_command(
+            output_dir,
+            args.time_from,
+            args.time_to,
+            channel_id=channel_id,
+            files=args.files,
+            api_config=args.api_config,
         )
-    except FileNotFoundError:
-        print("❌ slackdump not found. Install it first (e.g., `go install github.com/rusq/slackdump@latest`).")
-        sys.exit(1)
-    except subprocess.CalledProcessError as e:
-        if e.returncode == 4:
-            print("❌ Authentication error with slackdump.")
-            suggest_slackdump_setup()
-        else:
-            print(f"❌ slackdump failed with exit code {e.returncode}.")
-        sys.exit(1)
+    except ValueError as exc:
+        print(f"❌ {exc}")
+        sys.exit(2)
+
+    file_mode = "enabled" if args.files else "disabled"
+    print(
+        f"📤 Exporting {channel_id} from {args.time_from} UTC to {args.time_to} UTC "
+        f"with file downloads {file_mode} → {output_dir}"
+    )
+    run_slackdump_export(command)
 
     print(f"✅ Export complete. Output written to: {output_dir.resolve()}")
 
     if args.prep:
         folder_name = output_dir.name
         print(f"⚙️  Running slackprep on: {folder_name}")
-        sys.argv = ["slackprep", folder_name]  # Simulate CLI args
-        handle_reassemble(argparse.Namespace(
-            folder_token=folder_name,
-            input_dir=None,
-            output=None,
-            format="markdown",
-            all_turns=False,
-            absolute_timestamps=False,
-            use_symlink_for_attachments=False
-        ))
+        handle_reassemble(
+            argparse.Namespace(
+                folder_token=folder_name,
+                input_dir=None,
+                output=None,
+                format="markdown",
+                all_turns=False,
+                absolute_timestamps=False,
+                use_symlink_for_attachments=False,
+                filter_bots=False,
+                filter_automation_channels=False,
+                filter_automated_content=False,
+                human_only=False,
+            )
+        )
 
 
 def handle_reassemble(args):
     input_dir = resolve_input_dir(args.input_dir, args.folder_token)
     user_lookup = load_users(input_dir / "users.json")
-    
+
     # Handle filtering options
-    filter_bots = getattr(args, 'filter_bots', False) or getattr(args, 'human_only', False)
-    filter_automation_channels = getattr(args, 'filter_automation_channels', False) or getattr(args, 'human_only', False)
-    filter_automated_content = getattr(args, 'filter_automated_content', False) or getattr(args, 'human_only', False)
-    
+    filter_bots = getattr(args, "filter_bots", False) or getattr(args, "human_only", False)
+    filter_automation_channels = getattr(args, "filter_automation_channels", False) or getattr(
+        args, "human_only", False
+    )
+    filter_automated_content = getattr(args, "filter_automated_content", False) or getattr(args, "human_only", False)
+
     bot_users = None
     if filter_bots:
         bot_users = load_bot_users(input_dir / "users.json")
         print(f"🤖 Filtering out messages from {len(bot_users)} bot users")
-    
+
     convo_dirs = []
     for d in input_dir.iterdir():
         if not d.is_dir():
@@ -367,83 +441,55 @@ def handle_reassemble(args):
                             if not filename or not file_id:
                                 continue
                             rel_path = f"__uploads/{file_id}/{filename}"
-                            filetype = "image" if filename.lower().endswith(
-                                ('.png', '.jpg', '.jpeg', '.gif', '.webp')) else "file"
-                            all_files.append({
-                                "name": filename,
-                                "type": filetype,
-                                "path": rel_path
-                            })
+                            filetype = (
+                                "image"
+                                if filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
+                                else "file"
+                            )
+                            all_files.append({"name": filename, "type": filetype, "path": rel_path})
 
     link_or_copy_uploads(
         input_dir,
         output_root,
         copy=not args.use_symlink_for_attachments,
         referenced_files=all_files,
-        force_fallback=False
+        force_fallback=False,
     )
 
 
 def handle_fetch_all(args: argparse.Namespace) -> None:
-    """
-    Export all accessible Slack conversations via slackdump workspace or token
-    and (optionally) run slackprep reassemble.
-    """
+    """Export all accessible conversations through a configured Slackdump workspace."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = Path(f"data/input/slackdump_all_{timestamp}")
 
-    # ── 1. Try slackdump workspace first (preferred method) ───────────────────
-    if check_slackdump_workspace():
-        print("🔧  Using configured slackdump workspace")
-        
-        # Build slackdump command  
-        cmd = ["slackdump", "export", "-o", str(out_dir)]
-        if args.start_date:
-            cmd += ["-time-from", args.start_date]
-        if args.end_date:
-            cmd += ["-time-to", args.end_date]
+    if not check_slackdump_workspace():
+        suggest_slackdump_setup()
+        sys.exit(1)
 
-        print(f"📤  Running slackdump export → {out_dir}")
-        
-        try:
-            subprocess.run(cmd, check=True)
-            print(f"✅  Export complete → {out_dir.resolve()}")
-        except FileNotFoundError:
-            print("❌  slackdump binary not found on PATH.")
-            print("    Install via `go install github.com/rusq/slackdump@latest`.")
-            sys.exit(1)
-        except subprocess.CalledProcessError as exc:
-            if exc.returncode == 4:
-                print("❌  Authentication error with slackdump.")
-                suggest_slackdump_setup()
-            else:
-                print(f"❌  slackdump exited with status {exc.returncode}")
-            sys.exit(1)
-
-    # ── 2. Fallback to token method if no workspace ──────────────────────────
-    else:
-        token = args.token.strip() if args.token else ""
-        if not token:
-            print("❌  No slackdump workspace configured and no token provided.")
-            suggest_slackdump_setup() 
-            print("\n💡  Alternatively, provide a token with --token")
-            sys.exit(1)
-
-        print("🔧  Using token authentication (no workspace configured)")
-        run_slackdump_api(
-            token=token,
-            output_dir=out_dir,
-            start_date=args.start_date,
-            end_date=args.end_date,
+    try:
+        command = build_slackdump_export_command(
+            out_dir,
+            args.time_from,
+            args.time_to,
+            files=args.files,
+            api_config=args.api_config,
         )
-        print(f"✅  Export complete → {out_dir.resolve()}")
+    except ValueError as exc:
+        print(f"❌ {exc}")
+        sys.exit(2)
 
-    # ── 3. Clean up if requested ──────────────────────────────────────────────
+    file_mode = "enabled" if args.files else "disabled"
+    print(
+        f"📤 Exporting all accessible conversations from {args.time_from} UTC to {args.time_to} UTC "
+        f"with file downloads {file_mode} → {out_dir}"
+    )
+    run_slackdump_export(command)
+    print(f"✅ Export complete → {out_dir.resolve()}")
+
     if args.cleanup:
         print("🧹  Running cleanup on exported data...")
         cleanup_slackdump(root_dir=out_dir, dry_run=False)
 
-    # ── 4. Reassemble if requested ────────────────────────────────────────────
     if args.prep:
         print("⚙️  Running reassemble...")
         handle_reassemble(
@@ -455,66 +501,12 @@ def handle_fetch_all(args: argparse.Namespace) -> None:
                 all_turns=args.all_turns,
                 absolute_timestamps=False,
                 use_symlink_for_attachments=False,
+                filter_bots=False,
+                filter_automation_channels=False,
+                filter_automated_content=False,
+                human_only=args.human_only,
             )
         )
-
-
-def run_slackdump_api(
-    token: str,
-    output_dir: Path,
-    start_date: str | None = None,
-    end_date: str | None = None,
-) -> None:
-    """
-    Invoke `slackdump export` to pull all conversations using the correct flags.
-    """
-    # Check if slackdump workspace is configured
-    if not check_slackdump_workspace():
-        suggest_slackdump_setup()
-        sys.exit(1)
-    
-    # Build the command with the correct flags based on `slackdump help export`
-    cmd = [
-        "slackdump",
-        "export",
-        "-o", str(output_dir),
-    ]
-    if start_date:
-        # Correct flag is "-time-from"
-        cmd += ["-time-from", start_date]
-    if end_date:
-        # Correct flag is "-time-to"
-        cmd += ["-time-to", end_date]
-
-    # Pass token via environment variable for security and correctness
-    env = os.environ.copy()
-    env["SLACK_API_TOKEN"] = token
-
-    # The --all and --output-format flags are removed as they are not valid.
-    print("📤  Running:", " ".join(cmd))
-    try:
-        # Use the `env` parameter to pass the token securely
-        subprocess.run(cmd, check=True, env=env)
-    except FileNotFoundError:
-        sys.exit(
-            "❌  slackdump binary not found on PATH. "
-            "Install via `go install github.com/rusq/slackdump@latest`."
-        )
-    except subprocess.CalledProcessError as exc:
-        if exc.returncode == 4:
-            print("❌  Authentication error with slackdump.")
-            suggest_slackdump_setup()
-        else:
-            print(f"❌  slackdump exited with status {exc.returncode}")
-        sys.exit(1)
-
-
-def validate_slack_token(token: str) -> dict | None:
-    """Ping Slack's auth.test endpoint to verify token and return identity info if valid."""
-    resp = requests.post("https://slack.com/api/auth.test", headers={"Authorization": f"Bearer {token}"})
-    if resp.ok and resp.json().get("ok"):
-        return resp.json()
-    return None
 
 
 def main() -> None:
@@ -524,26 +516,45 @@ def main() -> None:
     # ---------- existing sub-commands (fetch, reassemble) ----------
     fetch_parser = subparsers.add_parser("fetch", help="Fetch single channel / DM with slackdump")
     fetch_parser.add_argument("channel_id", help="Slack channel or DM ID (e.g. C08… or D08…)")
+    fetch_parser.add_argument(
+        "--time-from",
+        dest="time_from",
+        type=parse_utc_timestamp,
+        required=True,
+        help="Oldest message timestamp in UTC (YYYY-MM-DDTHH:MM:SS)",
+    )
+    fetch_parser.add_argument(
+        "--time-to",
+        dest="time_to",
+        type=parse_utc_timestamp,
+        required=True,
+        help="Newest message timestamp in UTC (YYYY-MM-DDTHH:MM:SS)",
+    )
+    fetch_parser.add_argument("--files", action="store_true", help="Download attachments (disabled by default)")
+    fetch_parser.add_argument("--api-config", type=Path, help="Conservative Slackdump API configuration file")
     fetch_parser.add_argument("--prep", action="store_true", help="Run reassemble after export")
     fetch_parser.set_defaults(func=handle_fetch)
 
-    # ---------- fetch-all (uses slackdump workspace or token) ----------
-    fetch_all = subparsers.add_parser(
-        "fetch-all", help="Fetch ALL conversations using slackdump workspace or token"
+    # ---------- fetch-all (uses a configured Slackdump workspace) ----------
+    fetch_all = subparsers.add_parser("fetch-all", help="Fetch all conversations in a bounded UTC time range")
+    fetch_all.add_argument(
+        "--time-from",
+        dest="time_from",
+        type=parse_utc_timestamp,
+        required=True,
+        help="Oldest message timestamp in UTC (YYYY-MM-DDTHH:MM:SS)",
     )
     fetch_all.add_argument(
-        "--token",
-        default=os.environ.get("SLACK_API_TOKEN"),
-        help="Slack OAuth token (fallback if no workspace configured)",
+        "--time-to",
+        dest="time_to",
+        type=parse_utc_timestamp,
+        required=True,
+        help="Newest message timestamp in UTC (YYYY-MM-DDTHH:MM:SS)",
     )
-    fetch_all.add_argument("--start-date", help="YYYY-MM-DD")
-    fetch_all.add_argument("--end-date", help="YYYY-MM-DD")
-    fetch_all.add_argument(
-        "--prep", action="store_true", help="Run reassemble automatically after export"
-    )
-    fetch_all.add_argument(
-        "--cleanup", action="store_true", help="Remove empty/unused data before prepping"
-    )
+    fetch_all.add_argument("--files", action="store_true", help="Download attachments (disabled by default)")
+    fetch_all.add_argument("--api-config", type=Path, help="Conservative Slackdump API configuration file")
+    fetch_all.add_argument("--prep", action="store_true", help="Run reassemble automatically after export")
+    fetch_all.add_argument("--cleanup", action="store_true", help="Remove empty/unused data before prepping")
     fetch_all.add_argument(
         "--format",
         choices=["markdown", "jsonl"],
@@ -554,6 +565,11 @@ def main() -> None:
         "--all-turns",
         action="store_true",
         help="Disable turn grouping during --prep",
+    )
+    fetch_all.add_argument(
+        "--human-only",
+        action="store_true",
+        help="Apply all bot and automation filters while prepping",
     )
     fetch_all.set_defaults(func=handle_fetch_all)
 
@@ -577,7 +593,7 @@ def main() -> None:
     )
     re_parser.add_argument(
         "--filter-automation-channels",
-        action="store_true", 
+        action="store_true",
         help="Skip channels that appear to be automation-heavy",
     )
     re_parser.add_argument(
