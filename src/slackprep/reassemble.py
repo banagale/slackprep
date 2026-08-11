@@ -110,6 +110,12 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
         output_md.append(header + "\n".join(block) + "\n\n---\n")
 
     for convo_dir in convo_dirs:
+        # Turn grouping is scoped to a conversation. Flush and reset at each
+        # boundary so messages never appear beneath the next channel header.
+        previous_user = None
+        current_block = []
+        last_ts = None
+
         # Categorize conversation type
         convo_type = ""
         if convo_dir.name.startswith("D"):
@@ -217,8 +223,11 @@ def reassemble_messages(convo_dirs, user_lookup, absolute_timestamps=False, grou
                         "files": files
                     })
 
-    flush_block(previous_user, last_ts, current_block)
-    
+        flush_block(previous_user, last_ts, current_block)
+        previous_user = None
+        current_block = []
+        last_ts = None
+
     # Print content summary
     total_convos = stats["channels"] + stats["dms"] + stats["group_msgs"]
     print(f"📊 Processed {total_convos} conversations: {stats['channels']} channels, {stats['dms']} DMs, {stats['group_msgs']} group messages")

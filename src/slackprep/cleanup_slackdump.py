@@ -8,13 +8,10 @@ def cleanup_slackdump(root_dir: Path, dry_run: bool = True):
 
     # Files we know we want to keep
     keep_files = {"users.json"}
-    keep_dirs = []
-
     # Collect all files referenced in messages (to preserve from __uploads)
     referenced_files = set()
     for subdir in root_dir.iterdir():
-        if subdir.is_dir() and subdir.name.startswith("mpdm-"):
-            keep_dirs.append(subdir.name)
+        if subdir.is_dir() and not subdir.name.startswith(("__", ".")):
             for json_file in subdir.glob("*.json"):
                 with open(json_file) as f:
                     for message in json.load(f):

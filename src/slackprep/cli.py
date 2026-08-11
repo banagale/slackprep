@@ -320,12 +320,15 @@ def handle_reassemble(args):
     output_root.mkdir(parents=True, exist_ok=True)
 
     if IS_MACOS:
-        rel_input = Path("../../input") / input_dir.name
+        rel_input = Path(os.path.relpath(input_dir.resolve(), start=output_root.resolve()))
         link_path = output_root / "original_input"
         try:
-            if link_path.exists() or link_path.is_symlink():
-                if not link_path.resolve().samefile(input_dir.resolve()):
+            if link_path.is_symlink():
+                if link_path.resolve(strict=False) != input_dir.resolve():
                     print(f"⚠️  Symlink already exists but points elsewhere: {link_path}")
+            elif link_path.exists():
+                if not link_path.samefile(input_dir.resolve()):
+                    print(f"⚠️  Path already exists but points elsewhere: {link_path}")
             else:
                 os.symlink(rel_input, link_path)
                 print(f"🔗 Symlinked input folder → {link_path}")

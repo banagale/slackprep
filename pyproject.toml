@@ -49,4 +49,7 @@ select = ["E", "F", "I"]
 fixable = ["ALL"]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: opt-in tests against a private local Slack export",
+]

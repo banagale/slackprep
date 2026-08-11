@@ -24,6 +24,23 @@ poetry install
 poetry run slackprep --help
 ```
 
+### Testing
+
+Run the sanitized, offline test suite:
+
+```bash
+poetry run pytest
+```
+
+An existing private Slackdump export can be used for an opt-in integration check:
+
+```bash
+SLACKPREP_LIVE_EXPORT=/path/to/local/export poetry run pytest -m integration
+```
+
+The integration test only reads the local export and does not call Slack. Keep private exports outside the repository and
+never commit them.
+
 ### ⚡ Export a week of slack convos
 
 ```bash
