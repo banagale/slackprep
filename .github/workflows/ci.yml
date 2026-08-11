@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install Poetry
+        run: python -m pip install poetry==2.4.1
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Test
+        run: poetry run pytest -q
+
+      - name: Lint
+        run: poetry run ruff check src tests
+
+      - name: Check formatting
+        run: poetry run ruff format --check src tests
+
+      - name: Smoke test CLI
+        run: poetry run slackprep --help
