@@ -16,6 +16,7 @@ venv/
 # ---- VS Code ----
 .vscode/
 *.code-workspace
+.claude/current-task
 
 # ---- Python ----
 *.pyc

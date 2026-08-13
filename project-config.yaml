@@ -1,0 +1,22 @@
+schema_version: 1
+
+repo: slackprep
+description: Convert bounded Slackdump exports into Markdown and JSONL for LLM context
+
+canonical_branch: main
+remote: origin
+
+sync:
+  strategy: merge
+  push_landing: false
+  publish_to_canonical: false
+
+task:
+  type: bloon
+  default_priority: 2
+  onboarding: false
+
+worktrees:
+  - name: primary
+    path: ~/code/projects/slackprep
+    landing_branch: main
