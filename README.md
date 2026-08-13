@@ -8,17 +8,17 @@ Current release: **v0.3.0**. SlackPrep requires Python 3.12 or newer.
 
 ## Install
 
-Install SlackPrep in an isolated environment with [uv](https://docs.astral.sh/uv/):
+Install SlackPrep's v0.3.0 wheel in an isolated environment with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install slackprep
+uv tool install https://github.com/banagale/slackprep/releases/download/v0.3.0/slackprep-0.3.0-py3-none-any.whl
 slackprep --help
 ```
 
 Alternatively, use pipx:
 
 ```bash
-pipx install slackprep
+pipx install https://github.com/banagale/slackprep/releases/download/v0.3.0/slackprep-0.3.0-py3-none-any.whl
 slackprep --help
 ```
 
