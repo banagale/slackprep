@@ -35,6 +35,8 @@ tmp/
 
 # ---- Input and output ----
 data/
+slackdump_*.zip
+users-*.txt
 # ---- Build & Distribution ----
 dist/
 build/
