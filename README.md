@@ -1,21 +1,29 @@
-# slackprep
+# SlackPrep
 
 Turn Slackdump exports into Markdown or JSONL that is useful as LLM context. SlackPrep groups conversational turns,
 resolves author names, renders attachment references, converts common Slack emoji, and can filter bot or automation
 noise.
 
-## Setup
+Current release: **v0.3.0**. SlackPrep requires Python 3.12 or newer.
 
-SlackPrep requires Python 3.12+, Poetry, and Slackdump 4 for live exports.
+## Install
+
+Install SlackPrep in an isolated environment with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-git clone git@github.com:banagale/slackprep.git
-cd slackprep
-uvx --from poetry poetry install --with dev
-uvx --from poetry poetry run slackprep --help
+uv tool install slackprep
+slackprep --help
 ```
 
-On macOS, install and authenticate Slackdump with:
+Alternatively, use pipx:
+
+```bash
+pipx install slackprep
+slackprep --help
+```
+
+Converting an existing export needs only SlackPrep. Fetching from Slack also requires Slackdump 4. On macOS, install
+Slackdump and configure an encrypted workspace through its browser-based authentication flow:
 
 ```bash
 brew install slackdump
@@ -25,10 +33,11 @@ slackdump wiz
 Slackdump stores workspace credentials outside this repository. SlackPrep uses configured Slackdump workspaces only;
 it does not accept or persist Slack tokens.
 
-## Export one channel or DM
+## Export One Channel or DM
 
-Every SlackPrep fetch requires explicit UTC timestamps. Attachments are not downloaded unless `--files` is present,
-and Slackdump is instructed to enumerate only users involved in the selected conversations.
+Every SlackPrep fetch requires a bounded interval with full UTC timestamps in `YYYY-MM-DDTHH:MM:SS` format.
+Attachments are not downloaded unless `--files` is present, and Slackdump is instructed to enumerate only users
+involved in the selected conversations.
 
 ```bash
 slackprep fetch C08ABCXYZ \
@@ -40,7 +49,7 @@ slackprep fetch C08ABCXYZ \
 
 Get a channel or DM ID by copying its Slack link. Use `--files` only when attachment bodies are required.
 
-## Export all accessible conversations
+## Export All Accessible Conversations
 
 `fetch-all` is intentionally bounded but can still make many API requests. Prefer `fetch` for routine work and keep
 the UTC interval narrow.
@@ -56,7 +65,7 @@ slackprep fetch-all \
 
 Add `--human-only` to apply all bot and automation filters during `--prep`.
 
-## Convert an existing export
+## Convert an Existing Export
 
 ```bash
 unzip slack-export.zip -d data/input/my_export
@@ -76,7 +85,7 @@ slackprep reassemble --input-dir data/input/my_export --human-only
 Raw exports are written under `data/input/`; processed output is written under `data/output/`. Keep private exports
 and credentials out of Git.
 
-## Run Slackdump directly
+## Run Slackdump Directly
 
 For controls beyond the SlackPrep wrapper, use the configured Slackdump workspace and preserve the same safety
 defaults:
@@ -92,9 +101,15 @@ slackdump export \
   C08ABCXYZ
 ```
 
-## Development and testing
+## Development and Testing
+
+Clone the repository and install its development dependencies with Poetry (run through `uvx`, so a global Poetry
+installation is not required):
 
 ```bash
+git clone git@github.com:banagale/slackprep.git
+cd slackprep
+uvx --from poetry poetry install --with dev
 uvx --from poetry poetry run pytest -q
 uvx --from poetry poetry run ruff check src tests
 uvx --from poetry poetry run ruff format --check src tests
@@ -110,3 +125,12 @@ SLACKPREP_LIVE_EXPORT=/path/to/local/export \
 
 The integration test reads local files only and never calls Slack. See `AGENTS.md` for the complete maintenance and
 Slack safety rules.
+
+## Related: Searchable AI Session History
+
+SlackPrep prepares selected Slack conversations for LLM context. If you also want Claude Code or Codex to retrieve
+decisions, code patterns, and solutions from indexed past AI sessions, see [Contextify Total Recall](https://contextify.sh/).
+
+## Release Notes
+
+See the [changelog](https://github.com/banagale/slackprep/blob/main/CHANGELOG.md) for release history.
