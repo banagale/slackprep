@@ -23,7 +23,7 @@ Issues = "https://github.com/banagale/slackprep/issues"
 slackprep = "slackprep.cli:main"
 
 [build-system]
-requires = ["poetry-core>=1.7.0"]
+requires = ["poetry-core>=2.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
