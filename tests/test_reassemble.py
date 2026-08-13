@@ -1,5 +1,9 @@
 import json
+import os
+import time
 from pathlib import Path
+
+import pytest
 
 from slackprep.reassemble import (
     is_archive,
@@ -64,6 +68,43 @@ def test_reassemble_groups_turns_without_crossing_conversations(slack_export: Pa
     assert "```\n<@UALICE> stays literal\n```\noutside @Alice Example" in rendered
 
 
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="host timezone switching requires time.tzset")
+@pytest.mark.parametrize(
+    ("absolute_timestamps", "expected_markdown_timestamp"),
+    [(False, "2026-01-02 UTC"), (True, "2026-01-02 17:00 UTC")],
+)
+def test_reassemble_timestamps_are_explicit_utc_and_host_timezone_independent(
+    slack_export: Path,
+    absolute_timestamps: bool,
+    expected_markdown_timestamp: str,
+) -> None:
+    users = load_users(slack_export / "users.json")
+    original_tz = os.environ.get("TZ")
+    outputs = []
+
+    try:
+        for host_timezone in ("America/Los_Angeles", "Asia/Tokyo"):
+            os.environ["TZ"] = host_timezone
+            time.tzset()
+            markdown, rows, _, _ = reassemble_messages(
+                [slack_export / "general"],
+                users,
+                absolute_timestamps=absolute_timestamps,
+            )
+            outputs.append((markdown, rows))
+    finally:
+        if original_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = original_tz
+        time.tzset()
+
+    assert outputs[0] == outputs[1]
+    markdown, rows = outputs[0]
+    assert f"[Alice Example — {expected_markdown_timestamp}]" in "".join(markdown)
+    assert rows[0]["timestamp"] == "2026-01-02T17:00:00.000001+00:00"
+
+
 def test_reassemble_filters_bots_channels_and_automated_content(slack_export: Path) -> None:
     users = load_users(slack_export / "users.json")
     markdown, rows, toc, stats = reassemble_messages(
@@ -98,6 +139,8 @@ def test_write_markdown_and_jsonl(tmp_path: Path, slack_export: Path) -> None:
     assert "# Slack Workspace Conversations Export" in rendered
     assert "- [general](#general)" in rendered
     assert "# Channel: general" in rendered
+    assert "**Generated**:" in rendered
+    assert " UTC\n" in rendered
     assert parsed_rows == rows
     assert all(
         {"timestamp", "user_id", "user_name", "raw_text", "rendered_text", "files"} <= row.keys() for row in parsed_rows

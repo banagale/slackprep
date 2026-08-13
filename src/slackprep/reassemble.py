@@ -1,9 +1,14 @@
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 ARCHIVE_EXTENSIONS = {".tar.gz", ".zip", ".tgz", ".gz"}
+
+
+def utc_datetime(timestamp: float) -> datetime:
+    """Convert a Unix timestamp to an explicitly UTC-aware datetime."""
+    return datetime.fromtimestamp(timestamp, tz=UTC)
 
 
 def load_users(users_path: Path) -> dict:
@@ -203,8 +208,9 @@ def reassemble_messages(
                         continue
                     name = user_lookup.get(user_id, "Unknown")
                     ts_raw = float(msg["ts"])
-                    ts_fmt = "%Y-%m-%d %H:%M" if absolute_timestamps else "%Y-%m-%d"
-                    ts = datetime.fromtimestamp(ts_raw).strftime(ts_fmt)
+                    ts_fmt = "%Y-%m-%d %H:%M UTC" if absolute_timestamps else "%Y-%m-%d UTC"
+                    timestamp_utc = utc_datetime(ts_raw)
+                    ts = timestamp_utc.strftime(ts_fmt)
 
                     if "```" in raw:
                         parts = raw.split("```")
@@ -249,7 +255,7 @@ def reassemble_messages(
 
                     output_jsonl.append(
                         {
-                            "timestamp": datetime.fromtimestamp(ts_raw).isoformat(),
+                            "timestamp": timestamp_utc.isoformat(),
                             "user_id": user_id,
                             "user_name": name,
                             "raw_text": raw,
@@ -299,7 +305,7 @@ def write_markdown(lines: list[str], output_path: Path, toc_entries=None, stats=
                     f"{stats['filtered_bot_msgs']} bot messages, "
                     f"{stats['filtered_content_msgs']} automated content\n"
                 )
-            f.write(f"**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
+            f.write(f"**Generated**: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}\n\n")
 
         # Write table of contents
         if toc_entries:
